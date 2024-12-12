@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 
 pragma solidity ^0.8.0;
+import "hardhat/console.sol";
 
 contract Galanthus {
     string public name;
@@ -276,7 +277,7 @@ contract Galanthus {
     }
 
 
-    function executeTopProposal() public {
+    function executeProposals() public {
         require(msg.sender == fundManager, "Only fund manager can execute proposals");
         require(proposalsBudget > 0, "No funds available in the proposal budget");
 
@@ -365,7 +366,7 @@ contract Galanthus {
 
     function burnTokens(address account, uint256 amount) public {
         require(balances[account] >= amount, "Insufficient balance to burn");
-        require(msg.sender == fundManager, "Only fund manager can burn GAL tokens");
+        require(msg.sender == account, "Only account owner can burn GAL tokens in exchange for votes");
         
         balances[account] -= amount;
         totalSupply -= amount;
