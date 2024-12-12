@@ -20,8 +20,25 @@ contract Galanthus {
     uint256 public proposalsBudget; // an amount that gets accummulated after we reach the urgent aid threshold 
     uint256 public fundRunningBudget; // total of fees charged from all transactions to accummulate money for operating the fund
 
+    struct Proposal {
+        uint256 id;
+        address proposer;
+        string title;
+        string description;
+        uint256 votesFor;
+        bool executed;
+        bool passed;
+    }
+
+    mapping(uint256 => Proposal) public proposals;
+    uint256 public proposalCount;
+
+    mapping(uint256 => mapping(address => bool)) public hasVoted; 
+
     event Transfer(address indexed from, address indexed to, uint256 value);
     event Approval(address indexed owner, address indexed spender, uint256 value);
+    event TokensBurned(address indexed burner, uint256 amount);
+
     event DonationReceived(address indexed donor, uint256 value);
     event VerifiedDonorRegistered(address indexed donor);
     event VerifiedDonorRemoved(address indexed donor);
@@ -33,6 +50,12 @@ contract Galanthus {
     event ProposalsBudgetIncreased(uint256 value);
     event UrgentAidDueAmountDecreased(uint256 value);
     event FundsTransferredToUrgentAidPartner(uint256 value);
+    event FundsTransferredToReliefPartner(address indexed reliefPartner, uint256 value);
+
+    event ProposalPublished(uint256 indexed proposalId, address indexed proposer, string title);
+    event ProposalVoted(uint256 indexed proposalId, address indexed voter, uint256 votes);
+    event ProposalExecuted(uint256 indexed proposalId, bool passed);
+    event ProposalPassed(uint256 indexed proposalId);
 
     constructor(
         uint256 _initialSupply
@@ -90,6 +113,11 @@ contract Galanthus {
     function sendAmountToUrgentAidPartner(uint256 amount) public payable  {
         payable(urgentAidPartner).transfer(amount);
         emit FundsTransferredToUrgentAidPartner(amount);
+    }
+
+    function sendAmountToReliefPartner(address reliefPartner, uint256 amount) public payable  {
+        payable(reliefPartner).transfer(amount);
+        emit FundsTransferredToReliefPartner(reliefPartner, amount);
     }
 
     function addVerifiedDonor(address newDonor) public {
@@ -163,6 +191,132 @@ contract Galanthus {
         emit UrgentAidPartnerWasSet(urgentAidPartner);
     }
 
+    // proposals and voting
+
+    function publishProposal(string memory _title, string memory _description) public {
+        bool isVerifiedPartner = false;
+        for (uint i = 0; i < verifiedReliefPartners.length; i++) {
+            if (verifiedReliefPartners[i] == msg.sender) {
+                isVerifiedPartner = true;
+                break;
+            }
+        }
+        require(isVerifiedPartner, "Only verified relief partners can create proposals");
+
+        proposalCount++;
+        proposals[proposalCount] = Proposal({
+            id: proposalCount,
+            proposer: msg.sender,
+            title: _title,
+            description: _description,
+            votesFor: 0,
+            executed: false,
+            passed: false
+        });
+
+        emit ProposalPublished(proposalCount, msg.sender, _title);
+    }
+
+    function quadraticNumberOfVotes(uint256 balance) public pure returns (uint256) {
+        uint256 remainingBalance = balance;
+        uint256 votes = 0;
+
+        for (uint i = 0; remainingBalance >= i*i; i++) {
+            votes = i;
+            remainingBalance -= i*i;
+        }
+        
+        return votes;
+    }
+
+    function quadraticCostOfVotes(uint256 n) public pure returns (uint256) {
+        // Mathematical formula - sum of squares 
+        return (n * (n + 1) * (2 * n + 1)) / 6;
+    }
+
+    function voteOnProposal(uint256 _proposalId) public {
+        Proposal storage proposal = proposals[_proposalId];
+
+        require(!proposal.executed, "Proposal already executed");
+        require(!hasVoted[_proposalId][msg.sender], "Donor has already voted on this proposal");
+
+        bool isVerifiedDonor = false;
+        for (uint i = 0; i < verifiedDonors.length; i++) {
+            if (verifiedDonors[i] == msg.sender) {
+                isVerifiedDonor = true;
+                break;
+            }
+        }
+        require(isVerifiedDonor, "Only verified donors can vote");
+
+        uint256 voterBalance = balanceOf(msg.sender);
+        require(voterBalance > 0, "Insufficient tokens to vote");
+
+        hasVoted[_proposalId][msg.sender] = true;
+        
+        uint256 votes = quadraticNumberOfVotes(voterBalance);
+        proposal.votesFor += votes;
+
+        burnTokens(msg.sender, quadraticCostOfVotes(votes)); // burn tokens equal the cost of voting 
+
+        emit ProposalVoted(_proposalId, msg.sender, votes);
+    }
+
+    function getProposalDetails(uint256 _proposalId) public view returns (address proposer, 
+        string memory title, string memory description, uint256 votesFor, bool executed, bool passed) {
+        Proposal storage proposal = proposals[_proposalId];
+        return (
+            proposal.proposer,
+            proposal.title,
+            proposal.description,
+            proposal.votesFor,
+            proposal.executed,
+            proposal.passed
+        );
+    }
+
+
+    function executeTopProposal() public {
+        require(msg.sender == fundManager, "Only fund manager can execute proposals");
+        require(proposalsBudget > 0, "No funds available in the proposal budget");
+
+        uint256 maxVotes = 0;
+        uint256 winningProposalId = 0;
+        uint256 tieCheckVotes = 0;
+
+        for (uint256 i = 1; i <= proposalCount; i++) {
+            Proposal storage proposal = proposals[i];
+            
+            if (!proposal.executed) {                
+                if (proposal.votesFor > maxVotes) {
+                    maxVotes = proposal.votesFor;
+                    winningProposalId = i;
+                    tieCheckVotes = 0; 
+                } else if (proposal.votesFor == maxVotes && maxVotes > 0) {
+                    tieCheckVotes++; 
+                }
+            }
+        }
+
+        require(tieCheckVotes == 0, "Multiple proposals have maximum votes - cannot determine single winner");
+        require(winningProposalId > 0, "No executable proposals found");
+
+        Proposal storage winningProposal = proposals[winningProposalId];
+        
+        proposalsBudget = 0;
+        sendAmountToReliefPartner(winningProposal.proposer, proposalsBudget);
+    
+        winningProposal.passed = true;
+        emit ProposalPassed(winningProposal.id);
+        
+        for (uint256 i = 1; i <= proposalCount; i++) {
+            Proposal storage proposal = proposals[i];
+            proposal.executed = true;
+            emit ProposalExecuted(i, proposal.passed);
+        }
+    }
+    // end of proposals and voting
+
     function balanceOf(address account) public view returns (uint256) {
         return balances[account];
     }
@@ -207,5 +361,16 @@ contract Galanthus {
 
         emit Transfer(sender, recipient, amount);
         return true;
+    }
+
+    function burnTokens(address account, uint256 amount) public {
+        require(balances[account] >= amount, "Insufficient balance to burn");
+        require(msg.sender == fundManager, "Only fund manager can burn GAL tokens");
+        
+        balances[account] -= amount;
+        totalSupply -= amount;
+
+        emit Transfer(account, address(0), amount);
+        emit TokensBurned(account, amount);
     }
 }

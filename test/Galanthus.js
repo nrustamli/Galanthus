@@ -117,6 +117,15 @@ describe("Galanthus", function () {
         expect(await galanthus.getLastVerifiedReliefPartner()).to.equal(charityLongTerm1)
       });
     })
+
+    describe("Proposals and Quadratic Voting", function() {
+      it("Quadratic voting should determine correct number of votes given a balance of GAL tokens", async function () {
+        const { galanthus } = await loadFixture(deployGalanthusFixture);
+        expect(await galanthus.quadraticValue(100)).to.equal(6);
+        expect(await galanthus.quadraticValue(10)).to.equal(2);
+        expect(await galanthus.quadraticValue(1)).to.equal(1);
+      })
+    })
   })
 
   // describe("Fund Contract", function () {
