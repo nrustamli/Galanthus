@@ -18,8 +18,8 @@ contract Galanthus {
 
 
     uint256 public urgentAidDueAmount; // a threshold before which all funds are directed to urgent aid partner
-    uint256 public proposalsBudget; // an amount that gets accummulated after we reach the urgent aid threshold 
-    uint256 public fundRunningBudget; // total of fees charged from all transactions to accummulate money for operating the fund
+    uint256 public proposalsBudget; // an amount that gets accumulated after we reach the urgent aid threshold 
+    uint256 public fundRunningBudget; // total of fees charged from all transactions to accumulate money for operating the fund
 
     struct Proposal {
         uint256 id;
