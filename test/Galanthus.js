@@ -257,4 +257,64 @@ describe('Galanthus Contract', () => {
             expect(cost).to.equal((votes * (votes + 1) * (2 * votes + 1)) / 6);
         });
     });
+
+    describe('Execute Proposals Method', () => {
+        beforeEach(async () => {
+          await galanthus.addVerifiedReliefPartner(reliefPartner1.address);
+          await galanthus.addVerifiedReliefPartner(reliefPartner2.address);
+          await galanthus.addVerifiedDonor(donor1.address);
+          await galanthus.addVerifiedDonor(donor2.address);
+          
+          await galanthus.connect(donor1).donate({ value: 150736 * 100000 });
+          await galanthus.connect(donor2).donate({ value: 150736 * 100000 });
+        });
+      
+        it('should execute the proposal with the most votes correctly', async () => {
+          await galanthus.connect(reliefPartner1).publishProposal(
+            'Proposal 1', 
+            'Test proposal 1'
+          );
+          await galanthus.connect(reliefPartner2).publishProposal(
+            'Proposal 2', 
+            'Test proposal 2'
+          );
+
+          await galanthus.connect(donor1).voteOnProposal(1);
+          await galanthus.connect(donor2).voteOnProposal(1);
+      
+       
+          await galanthus.connect(owner).executeProposals();
+          const proposal1Details = await galanthus.getProposalDetails(1);
+          const proposal2Details = await galanthus.getProposalDetails(2);
+      
+          expect(proposal1Details.executed).to.be.true;
+          expect(proposal2Details.executed).to.be.true;
+          expect(proposal1Details.passed).to.be.true;
+          expect(proposal2Details.passed).to.be.false;
+        });
+      
+        it('should prevent execution when there are multiple proposals with max votes', async () => {
+          await galanthus.connect(reliefPartner1).publishProposal(
+            'Tie Proposal 1', 
+            'First tie proposal'
+          );
+          await galanthus.connect(reliefPartner2).publishProposal(
+            'Tie Proposal 2', 
+            'Second tie proposal'
+          );
+      
+          await galanthus.connect(donor1).voteOnProposal(1);
+          await galanthus.connect(donor2).voteOnProposal(2);
+           
+          await expect(
+            galanthus.connect(owner).executeProposals()
+          ).to.be.revertedWith('Multiple proposals have maximum votes - cannot determine single winner');
+        });
+      
+        it('should prevent non-fund manager from executing proposals', async () => {
+          await expect(
+            galanthus.connect(donor1).executeProposals()
+          ).to.be.revertedWith('Only fund manager can execute proposals');
+        });
+      });
 });
